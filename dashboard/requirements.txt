@@ -2,3 +2,4 @@ Flask>=3.0.0
 # pandas  # PythonAnywhere 已预装，无需安装
 # numpy   # PythonAnywhere 已预装，无需安装
 openpyxl>=3.1.2
+SQLAlchemy>=2.0.0
