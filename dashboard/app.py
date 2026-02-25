@@ -8,9 +8,10 @@ app = Flask(__name__)
 app.config['JSON_AS_ASCII'] = False
 
 # Configuration
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # EXCEL_PATH = r'G:\Trae\数据看板\Excel\智慧厨房转化率.xlsx'
-EXCEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', '智慧厨房转化率.xlsx')
-DB_PATH = 'dashboard.db'
+EXCEL_PATH = os.path.join(BASE_DIR, 'data', '智慧厨房转化率.xlsx')
+DB_PATH = os.path.join(BASE_DIR, 'dashboard.db')
 DB_URI = f'sqlite:///{DB_PATH}'
 
 engine = create_engine(DB_URI)
