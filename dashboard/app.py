@@ -8,7 +8,8 @@ app = Flask(__name__)
 app.config['JSON_AS_ASCII'] = False
 
 # Configuration
-EXCEL_PATH = r'G:\Trae\数据看板\Excel\智慧厨房转化率.xlsx'
+# EXCEL_PATH = r'G:\Trae\数据看板\Excel\智慧厨房转化率.xlsx'
+EXCEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', '智慧厨房转化率.xlsx')
 DB_PATH = 'dashboard.db'
 DB_URI = f'sqlite:///{DB_PATH}'
 
@@ -217,4 +218,5 @@ def export_data():
 if __name__ == '__main__':
     # Initialize DB on start
     init_db()
-    app.run(debug=True, port=5001)
+    # Use 0.0.0.0 to allow access from other devices on the same network
+    app.run(host='0.0.0.0', port=5001, debug=True)
