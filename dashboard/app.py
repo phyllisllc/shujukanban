@@ -1,69 +1,67 @@
 import os
 import pandas as pd
-import sqlite3
 from flask import Flask, render_template, jsonify, request, send_file
+from sqlalchemy import create_engine, text
 import io
 
 app = Flask(__name__)
-DB_NAME = 'sales_data.db'
+app.config['JSON_AS_ASCII'] = False
+
+# Configuration
 EXCEL_PATH = r'G:\Trae\数据看板\Excel\智慧厨房转化率.xlsx'
+DB_PATH = 'dashboard.db'
+DB_URI = f'sqlite:///{DB_PATH}'
+
+engine = create_engine(DB_URI)
 
 def init_db():
+    """Initialize database and import data from Excel."""
+    print("Initializing database...")
     try:
-        if not os.path.exists(EXCEL_PATH):
-            print(f"Error: Excel file not found at {EXCEL_PATH}")
-            return
-
         # Read Excel
-        print("Loading Excel data...")
         df = pd.read_excel(EXCEL_PATH, sheet_name='咨询明细-数据源')
         
         # Clean Data
-        # Remove header rows where '咨询结果' == '咨询结果'
-        df = df[df['咨询结果'] != '咨询结果']
+        df.columns = [c.strip() for c in df.columns]
         
-        # Rename columns for easier SQL access
-        # Columns based on analysis: ['年', '月份', '店铺', '类目', '成交金额', '日期', '顾客昵称', '商品编 号', '商品名称', '客服昵称', '状态', '咨询结果', ...]
-        column_map = {
+        # Filter valid rows like in the analysis script
+        df = df[df['客服昵称'] != '客服昵 称']
+        df = df[df['客服昵称'] != '客服昵称']
+        df = df[df['状态'] != '状态']
+        df = df.dropna(subset=['店铺', '客服昵称'])
+        df = df[df['年'] != '-']
+        
+        # Rename columns for database friendly names
+        df = df.rename(columns={
             '年': 'year',
-            '月份': 'month_str',
+            '月份': 'month',
             '店铺': 'shop',
             '类目': 'category',
             '成交金额': 'amount',
             '日期': 'date',
             '顾客昵称': 'customer',
-            '商品编 号': 'sku',
+            '商品编号': 'product_id',
             '商品名称': 'product_name',
-            '客服昵称': 'sales_person',
+            '客服昵称': 'sales_rep',
             '状态': 'status',
             '咨询结果': 'result'
-        }
-        df.rename(columns=column_map, inplace=True)
+        })
         
-        # Parse Month to Sortable format (YYYY-MM)
-        # Assuming format '2025年6月'
-        def parse_month(m_str):
-            try:
-                if not isinstance(m_str, str): return m_str
-                # Handle cases like '2025年6月'
-                if '年' in m_str and '月' in m_str:
-                    year = m_str.split('年')[0]
-                    month = m_str.split('年')[1].replace('月', '')
-                    return f"{year}-{int(month):02d}"
-                return m_str
-            except:
-                return m_str
+        # Ensure date is datetime
+        # df['date'] = pd.to_datetime(df['date'], errors='coerce')
+        # Keeping date as string or whatever format it is in Excel for now, 
+        # but for filtering we might need to standardize. 
+        # Let's inspect the date format. It seems to be mixed or just strings in some cases?
+        # Based on previous analysis, there is a '日期' column.
+        # Let's try to convert to datetime for better filtering
+        df['date_obj'] = pd.to_datetime(df['date'], errors='coerce')
         
-        df['month_sortable'] = df['month_str'].apply(parse_month)
-        
-        # Connect to SQLite and Replace Table
-        conn = sqlite3.connect(DB_NAME)
-        df.to_sql('sales', conn, if_exists='replace', index=False)
-        conn.close()
-        print("Database initialized successfully with {} records.".format(len(df)))
+        # Save to SQLite
+        df.to_sql('consultations', engine, if_exists='replace', index=False)
+        print("Data imported successfully.")
         
     except Exception as e:
-        print(f"Error initializing database: {e}")
+        print(f"Error importing data: {e}")
 
 @app.route('/')
 def index():
@@ -71,137 +69,152 @@ def index():
 
 @app.route('/api/options')
 def get_options():
+    """Get filter options."""
     try:
-        conn = sqlite3.connect(DB_NAME)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        
-        # Get Unique Sales Persons
-        cursor.execute("SELECT DISTINCT sales_person FROM sales WHERE sales_person IS NOT NULL ORDER BY sales_person")
-        persons = [row['sales_person'] for row in cursor.fetchall()]
-        
-        # Get Unique Months (for filtering)
-        cursor.execute("SELECT DISTINCT month_sortable FROM sales WHERE month_sortable IS NOT NULL ORDER BY month_sortable DESC")
-        months = [row['month_sortable'] for row in cursor.fetchall()]
-        
-        conn.close()
-        return jsonify({'persons': persons, 'months': months})
+        with engine.connect() as conn:
+            shops = pd.read_sql("SELECT DISTINCT shop FROM consultations WHERE shop IS NOT NULL ORDER BY shop", conn)['shop'].tolist()
+            sales_reps = pd.read_sql("SELECT DISTINCT sales_rep FROM consultations WHERE sales_rep IS NOT NULL ORDER BY sales_rep", conn)['sales_rep'].tolist()
+        return jsonify({'shops': shops, 'sales_reps': sales_reps})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/stats')
 def get_stats():
+    """Get dashboard statistics and chart data."""
     try:
-        person = request.args.get('person')
-        month = request.args.get('month') # YYYY-MM
+        # Get filters
+        shop = request.args.get('shop')
+        sales_rep = request.args.get('sales_rep')
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
         
-        conn = sqlite3.connect(DB_NAME)
-        # No row_factory needed for pandas
+        query = "SELECT * FROM consultations WHERE 1=1"
+        params = {}
         
-        query = "SELECT * FROM sales WHERE 1=1"
-        params = []
-        
-        if person and person != 'all':
-            query += " AND sales_person = ?"
-            params.append(person)
+        if shop:
+            query += " AND shop = :shop"
+            params['shop'] = shop
+        if sales_rep:
+            query += " AND sales_rep = :sales_rep"
+            params['sales_rep'] = sales_rep
+        if start_date:
+            query += " AND date_obj >= :start_date"
+            params['start_date'] = start_date
+        if end_date:
+            query += " AND date_obj <= :end_date"
+            params['end_date'] = end_date
             
-        if month and month != 'all':
-            query += " AND month_sortable = ?"
-            params.append(month)
-            
-        df = pd.read_sql_query(query, conn, params=params)
-        conn.close()
+        df = pd.read_sql(query, engine, params=params)
         
-        # Calculate Metrics
-        # Inquiries: status == '询单'
+        if df.empty:
+             return jsonify({
+                'cards': {'inquiries': 0, 'deals': 0, 'conversion_rate': 0, 'shop_count': 0},
+                'charts': {}
+            })
+
+        # --- Cards ---
         inquiries = df[df['status'] == '询单'].shape[0]
+        deals = df[(df['status'] == '询单') & (df['result'] == '成交')].shape[0]
+        conversion_rate = (deals / inquiries * 100) if inquiries > 0 else 0
+        shop_count = df['shop'].nunique()
         
-        # Transactions: result == '成交'
-        transactions = df[df['result'] == '成交'].shape[0]
+        cards = {
+            'inquiries': int(inquiries),
+            'deals': int(deals),
+            'conversion_rate': round(conversion_rate, 2),
+            'shop_count': int(shop_count)
+        }
         
-        # Conversion Rate
-        conversion_rate = 0
-        if inquiries > 0:
-            conversion_rate = (transactions / inquiries) * 100
-        
-        # Prepare Data for Charts
-        chart_data = {}
-        
-        if not person or person == 'all':
-            # Group by Sales Person
-            # Filter only necessary columns to avoid type issues
-            grouped = df.groupby('sales_person').agg(
-                inquiries=('status', lambda x: (x == '询单').sum()),
-                transactions=('result', lambda x: (x == '成交').sum())
-            ).reset_index()
+        # --- Charts Data Helper ---
+        def get_group_stats(group_col):
+            stats = df.groupby(group_col).apply(lambda x: pd.Series({
+                'inquiries': x[x['status'] == '询单'].shape[0],
+                'deals': x[(x['status'] == '询单') & (x['result'] == '成交')].shape[0]
+            })).reset_index()
             
-            grouped['conversion_rate'] = grouped.apply(lambda row: (row['transactions'] / row['inquiries'] * 100) if row['inquiries'] > 0 else 0, axis=1)
-            
-            # Sort by Inquiries desc for chart
-            grouped = grouped.sort_values('inquiries', ascending=False)
-            
-            chart_data['labels'] = grouped['sales_person'].tolist()
-            chart_data['inquiries'] = grouped['inquiries'].tolist()
-            chart_data['transactions'] = grouped['transactions'].tolist()
-            chart_data['conversion_rate'] = grouped['conversion_rate'].round(2).tolist()
-            
-        else:
-            # If single person, Group by Month
-            grouped = df.groupby('month_sortable').agg(
-                inquiries=('status', lambda x: (x == '询单').sum()),
-                transactions=('result', lambda x: (x == '成交').sum())
-            ).reset_index()
-            
-            grouped['conversion_rate'] = grouped.apply(lambda row: (row['transactions'] / row['inquiries'] * 100) if row['inquiries'] > 0 else 0, axis=1)
-            
-            # Sort by Month
-            grouped = grouped.sort_values('month_sortable')
+            stats['conversion_rate'] = stats.apply(lambda row: (row['deals'] / row['inquiries'] * 100) if row['inquiries'] > 0 else 0, axis=1)
+            return stats
 
-            chart_data['labels'] = grouped['month_sortable'].tolist()
-            chart_data['inquiries'] = grouped['inquiries'].tolist()
-            chart_data['transactions'] = grouped['transactions'].tolist()
-            chart_data['conversion_rate'] = grouped['conversion_rate'].round(2).tolist()
+        # Sales Rep Stats
+        sales_stats = get_group_stats('sales_rep')
+        
+        # Shop Stats
+        shop_stats = get_group_stats('shop')
+        
+        # Prepare Chart Data (Top 10 for readability)
+        def format_chart_data(data, label_col, value_col, sort_by=None):
+            if sort_by:
+                data = data.sort_values(sort_by, ascending=False)
+            
+            return {
+                'labels': data[label_col].tolist(),
+                'values': data[value_col].tolist()
+            }
 
-        return jsonify({
-            'summary': {
-                'total_inquiries': int(inquiries),
-                'total_transactions': int(transactions),
-                'avg_conversion_rate': round(conversion_rate, 2)
-            },
-            'chart_data': chart_data
-        })
+        charts = {
+            'sales_inquiries': format_chart_data(sales_stats, 'sales_rep', 'inquiries', 'inquiries'),
+            'sales_deals': format_chart_data(sales_stats, 'sales_rep', 'deals', 'deals'),
+            'sales_conversion': format_chart_data(sales_stats, 'sales_rep', 'conversion_rate', 'conversion_rate'),
+            
+            'shop_inquiries': format_chart_data(shop_stats, 'shop', 'inquiries', 'inquiries'),
+            'shop_deals': format_chart_data(shop_stats, 'shop', 'deals', 'deals'),
+            'shop_conversion': format_chart_data(shop_stats, 'shop', 'conversion_rate', 'conversion_rate'),
+        }
+        
+        return jsonify({'cards': cards, 'charts': charts})
+        
     except Exception as e:
+        print(f"Error: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/export')
 def export_data():
+    """Export filtered data to Excel."""
     try:
-        person = request.args.get('person')
-        month = request.args.get('month')
+        # Get filters (same as stats)
+        shop = request.args.get('shop')
+        sales_rep = request.args.get('sales_rep')
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
         
-        conn = sqlite3.connect(DB_NAME)
-        query = "SELECT * FROM sales WHERE 1=1"
-        params = []
+        query = "SELECT * FROM consultations WHERE 1=1"
+        params = {}
         
-        if person and person != 'all':
-            query += " AND sales_person = ?"
-            params.append(person)
-        if month and month != 'all':
-            query += " AND month_sortable = ?"
-            params.append(month)
+        if shop:
+            query += " AND shop = :shop"
+            params['shop'] = shop
+        if sales_rep:
+            query += " AND sales_rep = :sales_rep"
+            params['sales_rep'] = sales_rep
+        if start_date:
+            query += " AND date_obj >= :start_date"
+            params['start_date'] = start_date
+        if end_date:
+            query += " AND date_obj <= :end_date"
+            params['end_date'] = end_date
             
-        df = pd.read_sql_query(query, conn, params=params)
-        conn.close()
+        df = pd.read_sql(query, engine, params=params)
         
+        # Drop helper column
+        if 'date_obj' in df.columns:
+            df = df.drop(columns=['date_obj'])
+            
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             df.to_excel(writer, index=False, sheet_name='Filtered Data')
-        output.seek(0)
         
-        return send_file(output, download_name="sales_data_export.xlsx", as_attachment=True)
+        output.seek(0)
+        return send_file(
+            output,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name='export_data.xlsx'
+        )
+        
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
+    # Initialize DB on start
     init_db()
     app.run(debug=True, port=5001)
