@@ -1,78 +1,94 @@
 # 智慧厨房数据看板 - 免费部署指南
 
-本系统已配置好，可以直接部署到以下免费平台。请根据您的需求选择一种方式。
+本指南将教你如何将项目部署到云端，生成一个可以发给别人访问的网址。
+推荐使用 **PythonAnywhere**（最简单、稳定，适合新手）或 **Render**。
 
 ---
 
-## 方案一：Render（推荐，操作最简单）
+## 方案一：使用 PythonAnywhere 部署（推荐 ✨）
 
-**特点**：
-- ✅ 永久免费
-- ✅ 自动化部署（连接 GitHub 后，每次推送代码自动更新）
-- ⚠️ 限制：免费实例在 15 分钟无访问后会休眠，下次访问需要等待约 50 秒启动。
+**优点**：配置极其简单，Python 环境预装好，基本不会报错。
+**缺点**：免费版域名是 `你的用户名.pythonanywhere.com`。
 
-**部署步骤**：
-1. **上传代码到 GitHub**
-   - 注册并登录 [GitHub](https://github.com/)。
-   - 创建一个新的仓库（Repository）。
-   - 将本项目代码推送到该仓库。
+### 1. 注册账号
+访问 [www.pythonanywhere.com](https://www.pythonanywhere.com/)，点击 **Sign up**，选择 **Create a Beginner account**（免费版）。
 
-2. **在 Render 创建服务**
-   - 访问 [Render.com](https://render.com/) 并注册/登录。
-   - 点击右上角 **New +** -> 选择 **Web Service**。
-   - 连接您的 GitHub 账号并选择刚才创建的仓库。
+### 2. 上传代码
+登录后，点击右上角的 **Consoles** -> **Bash**。在黑底白字的命令行窗口中输入以下命令（复制粘贴并回车）：
 
-3. **配置服务**（Render 会自动检测，只需确认以下几项）：
-   - **Name**: 起个名字，例如 `kitchen-dashboard`。
-   - **🔴 Root Directory**: **必须填写 `dashboard`** (非常重要！否则会报错找不到文件)。
-   - **Runtime**: 选择 **Python 3**。
-   - **Build Command**: `pip install -r requirements.txt`
-   - **Start Command**: `gunicorn app:app`
-   - **Instance Type**: 选择 **Free**（免费版）。
+```bash
+# 1. 克隆代码
+git clone https://github.com/phyllisllc/shujukanban.git
 
-4. **完成**
-   - 点击 **Create Web Service**。
-   - 等待几分钟构建完成，您会获得一个 `https://xxxx.onrender.com` 的网址。
-   - **直接把这个网址发给别人即可访问！**
+# 2. 进入项目目录
+cd shujukanban/dashboard
+
+# 3. 安装依赖 (可能需要一点时间)
+pip install -r requirements.txt
+```
+
+### 3. 配置 Web 应用
+1. 点击页面右上角的 **Web** 标签页。
+2. 点击 **Add a new web app** 按钮。
+3. 点击 **Next**。
+4. 选择 **Flask**。
+5. 选择 **Python 3.10**（或者 3.9，都行）。
+6. **Path**：直接点击 Next（默认即可，稍后我们再改）。
+7. 创建完成后，你会在页面上看到 **Code** 部分。
+
+### 4. 修改关键配置（最重要的一步！）
+在 **Web** 标签页中，找到 **Code** 部分：
+
+*   **Source code**: 点击编辑图标（铅笔），填入：
+    `/home/你的用户名/shujukanban/dashboard`
+    *(注意：把“你的用户名”换成你注册时的名字，比如 `/home/zhangsan/shujukanban/dashboard`)*
+
+*   **Working directory**: 同样点击编辑，填入：
+    `/home/你的用户名/shujukanban/dashboard`
+
+*   **WSGI configuration file**: 点击那个长长的文件链接（例如 `/var/www/zhangsan_pythonanywhere_com_wsgi.py`）。
+    编辑器打开后，**删除所有内容**，然后粘贴以下代码：
+
+    ```python
+    import sys
+    import os
+
+    # 指向你的项目目录
+    path = '/home/你的用户名/shujukanban/dashboard'
+    if path not in sys.path:
+        sys.path.append(path)
+
+    # 导入 Flask 应用
+    from app import app as application
+    ```
+    *(再次提醒：把代码里的“你的用户名”换成你真实的用户名！)*
+    点击右上角的 **Save** 保存，然后点击面包屑导航回到 **Web** 页面。
+
+### 5. 启动网站
+在 **Web** 页面顶部，点击绿色的 **Reload <你的网址>** 按钮。
+点击你的网址（例如 `zhangsan.pythonanywhere.com`），应该就能看到数据看板了！
 
 ---
 
-## 方案二：PythonAnywhere（稳定，无休眠）
+## 方案二：使用 Render 部署
 
-**特点**：
-- ✅ 永久免费
-- ✅ 不会休眠（访问速度快）
-- ⚠️ 限制：需要手动上传代码或使用 git拉取；每 3 个月需要登录后台点一下“续期”按钮。
-
-**部署步骤**：
-1. **注册账号**
-   - 访问 [PythonAnywhere](https://www.pythonanywhere.com/)，注册一个 **Beginner**（免费）账号。
-
-2. **上传代码**
-   - 登录后点击 **Files** 选项卡。
-   - 可以直接上传 `dashboard` 文件夹中的文件，或者在 **Consoles** -> **Bash** 中使用 `git clone` 拉取您的 GitHub 仓库。
-
-3. **配置 Web 应用**
-   - 点击 **Web** 选项卡 -> **Add a new web app**。
-   - 点击 **Next** -> 选择 **Flask** -> 选择 **Python 3.10**（或您喜欢的版本）。
-   - **Path**: 修改为您上传代码的路径（例如 `/home/您的用户名/dashboard/app.py`）。
-
-4. **安装依赖**
-   - 打开 **Consoles** -> **Bash**。
-   - 运行：`pip3 install --user flask pandas openpyxl gunicorn`
-
-5. **完成**
-   - 回到 **Web** 选项卡，点击 **Reload** 按钮。
-   - 点击顶部的链接（例如 `您的用户名.pythonanywhere.com`）即可访问。
+1.  注册 [Render](https://render.com/)。
+2.  点击 **New +** -> **Web Service**。
+3.  连接你的 GitHub 仓库。
+4.  配置如下：
+    *   **Name**: `kitchen-dashboard`
+    *   **Root Directory**: `dashboard` (**必须填！**)
+    *   **Runtime**: Python 3
+    *   **Build Command**: `pip install -r requirements.txt`
+    *   **Start Command**: `gunicorn app:app`
+5.  点击 **Create Web Service**。
 
 ---
 
 ## 常见问题
 
-**Q: 为什么 Render 打开很慢？**
-A: 免费版在一段时间没有人访问后会自动休眠以节省资源。下次访问时需要重新启动，大约需要 50 秒。启动后速度就正常了。
+**Q: PythonAnywhere 部署后报错 "Something went wrong"?**
+A: 去 **Web** 页面，找到 **Log files**，查看 **Error log**。通常是因为 WSGI 文件里的路径写错了（用户名没改对），或者依赖包没安装好。
 
-**Q: 数据更新了怎么办？**
-A: 
-- **Render**: 直接将新的 Excel 文件提交到 GitHub，Render 会自动检测到变化并重新部署。
-- **PythonAnywhere**: 需要手动上传新的 Excel 文件覆盖旧文件，然后在 Web 选项卡点击 Reload。
+**Q: 数据不对或图表不显示？**
+A: 确保你之前上传代码时，Excel 文件也在 `dashboard/data` 目录下。我们的代码已经包含了 Excel 文件，只要 Git 克隆下来就有。
